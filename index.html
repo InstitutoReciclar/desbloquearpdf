@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desbloqueador de Boletos em Lote • Reciclar</title>
+  <!-- Fonte Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <!-- JSZip para empacotar lotes em .zip -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- SheetJS (XLSX) para ler planilhas Excel (.xlsx, .xls) e CSV com Nome e Senha -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- pdf-lib para criar o novo PDF limpo sem senha -->
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <!-- PDF.js (Mozilla) para abrir e decodificar boletos protegidos -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col items-center py-8 sm:py-10 px-4 font-sans antialiased">
+
+  <main class="w-full max-w-4xl bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+    <!-- 1. Cabeçalho -->
+    <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-6">
+      <div class="flex items-start sm:items-center gap-3.5">
+        <div class="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            Desbloqueador de Boletos em Lote
+          </h1>
+          <p class="text-sm text-slate-500 mt-0.5">
+            Cruza a planilha de alunos/senhas com os PDFs, abre e salva sem senha.
+          </p>
+        </div>
+      </div>
+
+      <span class="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 text-xs font-semibold px-3.5 py-1.5 rounded-full border border-emerald-200 self-start sm:self-center shrink-0">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        100% Local no Navegador
+      </span>
+    </header>
+
+    <!-- 2. Painel de Planilha (Nome x Senha) e Senhas Extras -->
+    <section class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- Importação da Planilha -->
+      <div class="bg-slate-50 rounded-xl p-4 sm:p-5 border border-slate-200/80 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-1.5">
+            <span class="text-sm font-semibold text-slate-700">
+              1. Planilha de Alunos e Senhas
+            </span>
+            <span id="sheetBadge" class="hidden text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+              0 registros
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mb-3">
+            Carregue a planilha (<strong>.xlsx</strong>, <strong>.xls</strong> ou <strong>.csv</strong>) contendo o <strong>Nome</strong> e a <strong>Senha</strong>. O sistema cruza automaticamente o nome com o título do PDF.
+          </p>
+        </div>
+
+        <div class="space-y-2.5">
+          <div
+            id="dropSheet"
+            role="button"
+            tabindex="0"
+            class="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/40 transition rounded-xl p-3.5 text-center cursor-pointer"
+          >
+            <p id="sheetLabel" class="text-xs font-semibold text-emerald-700">
+              📊 Clique ou arraste a planilha (.xlsx / .csv)
+            </p>
+            <input id="sheetInput" type="file" accept=".xlsx,.xls,.csv" class="hidden" />
+          </div>
+
+          <!-- Seletores de coluna -->
+          <div id="sheetColumnsConfig" class="hidden grid grid-cols-2 gap-2 pt-1">
+            <div>
+              <label for="nameColSelect" class="block text-[11px] font-semibold text-slate-600 mb-1">Coluna do Nome</label>
+              <select id="nameColSelect" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"></select>
+            </div>
+            <div>
+              <label for="passColSelect" class="block text-[11px] font-semibold text-slate-600 mb-1">Coluna da Senha</label>
+              <select id="passColSelect" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Senhas Padrão / Reserva -->
+      <div class="bg-slate-50 rounded-xl p-4 sm:p-5 border border-slate-200/80 flex flex-col justify-between">
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+            <label for="passwordsInput" class="text-sm font-semibold text-slate-700">
+              2. Senhas reserva / padrão (opcional)
+            </label>
+            <button
+              id="savePasswordsBtn"
+              type="button"
+              class="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-lg transition cursor-pointer"
+            >
+              Salvar neste navegador
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 mb-2.5">
+            Caso algum PDF não esteja na planilha, o sistema também tentará as senhas listadas abaixo (uma por linha). Ao salvar, elas ficam no armazenamento local deste navegador, sem criptografia; evite usar em computadores compartilhados.
+          </p>
+        </div>
+        <textarea
+          id="passwordsInput"
+          rows="3"
+          placeholder="Ex:&#10;12345&#10;04567890"
+          class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition"
+        ></textarea>
+      </div>
+    </section>
+
+    <!-- 3. Duas Áreas de Upload Lado a Lado -->
+    <section class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div
+        id="dropFiles"
+        role="button"
+        tabindex="0"
+        class="group border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/40 transition-all rounded-xl p-6 text-center cursor-pointer bg-slate-50/60 flex flex-col items-center justify-center"
+      >
+        <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 group-hover:scale-105 transition flex items-center justify-center mb-2.5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <p class="font-semibold text-slate-700 group-hover:text-blue-700 text-sm">
+          Selecionar PDF Individual ou Lote
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          Escolha 1 boleto ou vários arquivos simultaneamente
+        </p>
+        <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple class="hidden" />
+      </div>
+
+      <div
+        id="dropFolder"
+        role="button"
+        tabindex="0"
+        class="group border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50/40 transition-all rounded-xl p-6 text-center cursor-pointer bg-slate-50/60 flex flex-col items-center justify-center"
+      >
+        <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 group-hover:scale-105 transition flex items-center justify-center mb-2.5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
+        </div>
+        <p class="font-semibold text-slate-700 group-hover:text-blue-700 text-sm">
+          Selecionar Pasta Inteira
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          Carrega todos os PDFs de uma pasta e subpastas
+        </p>
+        <input id="folderInput" type="file" webkitdirectory directory multiple class="hidden" />
+      </div>
+    </section>
+
+    <!-- 4. Barra de Progresso em Tempo Real -->
+    <section id="progressSection" class="mt-6 hidden bg-slate-50 border border-slate-200/80 rounded-xl p-4">
+      <div class="flex flex-wrap justify-between items-center gap-2 text-xs font-semibold text-slate-600 mb-2">
+        <span id="progressLabel">Processando 0 de 0...</span>
+        <span id="statsLabel" class="text-slate-700">0 liberados • 0 falhas</span>
+      </div>
+      <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+        <div
+          id="progressBar"
+          class="bg-blue-600 h-2.5 rounded-full transition-all duration-150"
+          style="width: 0%"
+        ></div>
+      </div>
+    </section>
+
+    <!-- 6. Botões de Ação Principal e Secundário -->
+    <section class="mt-6 flex flex-col sm:flex-row gap-3">
+      <button
+        id="processBtn"
+        type="button"
+        disabled
+        class="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-3.5 px-6 rounded-xl text-sm transition shadow-sm flex items-center justify-center gap-2"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+        <span id="processBtnText">Desbloquear Lote e Baixar</span>
+      </button>
+
+      <button
+        id="clearBtn"
+        type="button"
+        class="bg-slate-200 hover:bg-slate-300 active:bg-slate-400/50 text-slate-700 font-semibold py-3.5 px-6 rounded-xl text-sm transition"
+      >
+        Limpar
+      </button>
+    </section>
+
+    <!-- Mensagem de Feedback Inline -->
+    <div id="statusBanner" class="mt-4 hidden rounded-xl px-4 py-3 text-xs font-medium border"></div>
+
+    <!-- Modal de Solicitação de Senha -->
+    <div id="passwordModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+      <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6">
+        <h3 class="text-base font-bold text-slate-900">Senha necessária para desbloquear</h3>
+        <p class="text-xs text-slate-500 mt-1">
+          O arquivo <strong id="modalFileName" class="text-slate-700 break-all"></strong> está protegido com senha de abertura. Informe a senha para removê-la definitivamente:
+        </p>
+        <input
+          id="modalPasswordInput"
+          type="text"
+          placeholder="Digite a senha do boleto..."
+          class="mt-4 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none"
+        />
+        <label class="mt-3 flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+          <input id="modalApplyAllCheckbox" type="checkbox" checked class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+          Usar esta senha automaticamente nos próximos arquivos do lote
+        </label>
+        <div class="mt-5 flex justify-end gap-2">
+          <button id="modalSkipBtn" type="button" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            Pular arquivo
+          </button>
+          <button id="modalConfirmBtn" type="button" class="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white transition">
+            Desbloquear
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. Tabela de Arquivos Carregados -->
+    <section id="tableSection" class="mt-6 hidden">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Arquivos na Fila (<span id="queueCount">0</span>)
+        </h2>
+      </div>
+      <div class="max-h-80 overflow-y-auto border border-slate-200 rounded-xl shadow-inner bg-white">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead class="bg-slate-50 text-slate-600 text-xs uppercase sticky top-0 border-b border-slate-200 z-10">
+            <tr>
+              <th class="py-3 px-4 font-semibold">Arquivo PDF</th>
+              <th class="py-3 px-4 font-semibold">Correspondência na Planilha</th>
+              <th class="py-3 px-4 font-semibold w-44 text-right">Status</th>
+              <th class="py-3 px-4 font-semibold w-28 text-center">Ação</th>
+            </tr>
+          </thead>
+          <tbody id="fileTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- 7. Rodapé com Botão de Exportação do Projeto ZIP para Git/Vercel -->
+  <footer class="w-full max-w-4xl mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400 px-2">
+    <p class="text-center sm:text-left">
+      Nenhum documento é enviado para servidores externos. Todo o processamento ocorre na memória do seu navegador.
+    </p>
+    <button
+      id="downloadSourceBtn"
+      type="button"
+      class="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-lg font-semibold transition shadow-2xs shrink-0 cursor-pointer"
+      title="Baixar pacote ZIP completo (index.html, vercel.json e README.md) pronto para subir no GitHub e Vercel"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+      Baixar Projeto ZIP (Git + Vercel)
+    </button>
+  </footer>
+
+  <!-- Lógica da Aplicação: Cruza Planilha (Nome x Senha) com PDF, abre via PDF.js e salva novo PDF limpo -->
+  <script>
+    const { PDFDocument } = window.PDFLib;
+
+    const dropSheet = document.getElementById('dropSheet');
+    const sheetInput = document.getElementById('sheetInput');
+    const sheetLabel = document.getElementById('sheetLabel');
+    const sheetBadge = document.getElementById('sheetBadge');
+    const sheetColumnsConfig = document.getElementById('sheetColumnsConfig');
+    const nameColSelect = document.getElementById('nameColSelect');
+    const passColSelect = document.getElementById('passColSelect');
+
+    const passwordsInput = document.getElementById('passwordsInput');
+    const savePasswordsBtn = document.getElementById('savePasswordsBtn');
+    const dropFiles = document.getElementById('dropFiles');
+    const dropFolder = document.getElementById('dropFolder');
+    const fileInput = document.getElementById('fileInput');
+    const folderInput = document.getElementById('folderInput');
+    const progressSection = document.getElementById('progressSection');
+    const progressLabel = document.getElementById('progressLabel');
+    const statsLabel = document.getElementById('statsLabel');
+    const progressBar = document.getElementById('progressBar');
+    const processBtn = document.getElementById('processBtn');
+    const processBtnText = document.getElementById('processBtnText');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusBanner = document.getElementById('statusBanner');
+    const tableSection = document.getElementById('tableSection');
+    const queueCount = document.getElementById('queueCount');
+    const fileTableBody = document.getElementById('fileTableBody');
+    const downloadSourceBtn = document.getElementById('downloadSourceBtn');
+    const passwordModal = document.getElementById('passwordModal');
+    const modalFileName = document.getElementById('modalFileName');
+    const modalPasswordInput = document.getElementById('modalPasswordInput');
+    const modalApplyAllCheckbox = document.getElementById('modalApplyAllCheckbox');
+    const modalSkipBtn = document.getElementById('modalSkipBtn');
+    const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+
+    let queue = [];
+    let sheetRawRows = [];
+    let sheetHeaders = [];
+    let studentRecords = [];
+
+    const STORAGE_KEY = 'reciclar_pdf_passwords';
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) passwordsInput.value = saved;
+    } catch (_) {}
+
+    savePasswordsBtn.addEventListener('click', () => {
+      try {
+        localStorage.setItem(STORAGE_KEY, passwordsInput.value);
+        const originalText = savePasswordsBtn.textContent;
+        savePasswordsBtn.textContent = '✓ Salvo!';
+        savePasswordsBtn.classList.add('bg-emerald-50', 'text-emerald-700');
+        savePasswordsBtn.classList.remove('bg-blue-50', 'text-blue-600');
+        setTimeout(() => {
+          savePasswordsBtn.textContent = originalText;
+          savePasswordsBtn.classList.remove('bg-emerald-50', 'text-emerald-700');
+          savePasswordsBtn.classList.add('bg-blue-50', 'text-blue-600');
+        }, 1600);
+      } catch (_) {}
+    });
+
+    function showBanner(message, type = 'info') {
+      statusBanner.textContent = message;
+      statusBanner.className = 'mt-4 rounded-xl px-4 py-3 text-xs font-medium border ';
+      if (type === 'error') {
+        statusBanner.classList.add('bg-red-50', 'text-red-700', 'border-red-200');
+      } else if (type === 'success') {
+        statusBanner.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
+      } else {
+        statusBanner.classList.add('bg-blue-50', 'text-blue-700', 'border-blue-200');
+      }
+    }
+
+    function hideBanner() {
+      statusBanner.classList.add('hidden');
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[char]);
+    }
+
+    function normalizeText(str) {
+      return String(str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function setupSheetDropzone() {
+      dropSheet.addEventListener('click', () => sheetInput.click());
+      dropSheet.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          sheetInput.click();
+        }
+      });
+      dropSheet.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropSheet.classList.add('border-emerald-500', 'bg-emerald-50/60');
+      });
+      dropSheet.addEventListener('dragleave', () => {
+        dropSheet.classList.remove('border-emerald-500', 'bg-emerald-50/60');
+      });
+      dropSheet.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropSheet.classList.remove('border-emerald-500', 'bg-emerald-50/60');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          parseSpreadsheet(e.dataTransfer.files[0]);
+        }
+      });
+      sheetInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          parseSpreadsheet(e.target.files[0]);
+        }
+      });
+    }
+
+    async function parseSpreadsheet(file) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const workbook = window.XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+        const nonEmptyRows = rows.filter((r) => Array.isArray(r) && r.some((cell) => String(cell).trim() !== ''));
+        if (nonEmptyRows.length === 0) {
+          showBanner('A planilha selecionada está vazia.', 'error');
+          return;
+        }
+
+        const firstRowNorm = nonEmptyRows[0].map((c) => normalizeText(c));
+        const hasHeader = firstRowNorm.some((c) =>
+          ['nome', 'aluno', 'estudante', 'pagador', 'senha', 'cpf', 'codigo', 'password'].some((kw) => c.includes(kw))
+        );
+
+        const maxCols = Math.max(...nonEmptyRows.map((r) => r.length));
+        sheetHeaders = Array.from({ length: maxCols }, (_, idx) => {
+          const headerText = hasHeader ? String(nonEmptyRows[0][idx] || '').trim() : '';
+          return headerText || `Coluna ${String.fromCharCode(65 + idx)}`;
+        });
+
+        sheetRawRows = hasHeader ? nonEmptyRows.slice(1) : nonEmptyRows;
+
+        nameColSelect.innerHTML = '';
+        passColSelect.innerHTML = '';
+        sheetHeaders.forEach((h, idx) => {
+          nameColSelect.add(new Option(h, idx));
+          passColSelect.add(new Option(h, idx));
+        });
+
+        let detectedNameIdx = firstRowNorm.findIndex((c) => c.includes('nome') || c.includes('aluno') || c.includes('estudante'));
+        let detectedPassIdx = firstRowNorm.findIndex((c) => c.includes('senha') || c.includes('password') || c.includes('cpf'));
+
+        if (detectedNameIdx === -1) detectedNameIdx = 0;
+        if (detectedPassIdx === -1) detectedPassIdx = maxCols > 1 ? 1 : 0;
+
+        nameColSelect.value = detectedNameIdx;
+        passColSelect.value = detectedPassIdx;
+
+        sheetLabel.textContent = `✓ ${file.name}`;
+        sheetColumnsConfig.classList.remove('hidden');
+
+        rebuildStudentRecords();
+        showBanner(`Planilha "${file.name}" carregada com ${studentRecords.length} registro(s)!`, 'success');
+      } catch (err) {
+        showBanner('Não foi possível ler a planilha. Verifique se é um arquivo .xlsx, .xls ou .csv válido.', 'error');
+      }
+    }
+
+    function rebuildStudentRecords() {
+      const nameIdx = parseInt(nameColSelect.value, 10) || 0;
+      const passIdx = parseInt(passColSelect.value, 10) || 0;
+
+      studentRecords = sheetRawRows
+        .map((row) => {
+          const rawName = String(row[nameIdx] ?? '').trim();
+          const rawPass = String(row[passIdx] ?? '').trim();
+          const normName = normalizeText(rawName);
+          const tokens = normName.split(' ').filter((t) => t.length >= 2);
+          return { rawName, rawPass, normName, tokens };
+        })
+        .filter((rec) => rec.normName.length > 0 && rec.rawPass.length > 0);
+
+      sheetBadge.textContent = `${studentRecords.length} registro(s)`;
+      sheetBadge.classList.remove('hidden');
+
+      queue.forEach((item) => {
+        item.match = findMatchForPdf(item.path);
+      });
+      renderTable();
+    }
+
+    nameColSelect.addEventListener('change', rebuildStudentRecords);
+    passColSelect.addEventListener('change', rebuildStudentRecords);
+
+    function findMatchForPdf(pdfPath) {
+      if (studentRecords.length === 0) return null;
+      const fileNameOnly = pdfPath.split('/').pop().replace(/\.pdf$/i, '');
+      const normPdf = normalizeText(fileNameOnly);
+      const pdfWords = new Set(normPdf.split(' '));
+
+      let bestMatch = null;
+      let bestScore = 0;
+
+      for (const rec of studentRecords) {
+        if (normPdf.includes(rec.normName)) {
+          const score = 1000 + rec.normName.length;
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = rec;
+          }
+          continue;
+        }
+
+        if (rec.tokens.length >= 2 && rec.tokens.every((tok) => pdfWords.has(tok))) {
+          const score = 500 + rec.tokens.length * 10;
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = rec;
+          }
+        }
+      }
+
+      return bestMatch;
+    }
+
+    setupSheetDropzone();
+
+    function setupDropzone(zone, input) {
+      zone.addEventListener('click', () => input.click());
+      zone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          input.click();
+        }
+      });
+      zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('border-blue-500', 'bg-blue-50/50');
+      });
+      zone.addEventListener('dragleave', () => {
+        zone.classList.remove('border-blue-500', 'bg-blue-50/50');
+      });
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('border-blue-500', 'bg-blue-50/50');
+        enqueueFiles(e.dataTransfer.files);
+      });
+    }
+
+    setupDropzone(dropFiles, fileInput);
+    setupDropzone(dropFolder, folderInput);
+
+    fileInput.addEventListener('change', (e) => enqueueFiles(e.target.files));
+    folderInput.addEventListener('change', (e) => enqueueFiles(e.target.files));
+
+    clearBtn.addEventListener('click', () => {
+      queue = [];
+      fileInput.value = '';
+      folderInput.value = '';
+      progressSection.classList.add('hidden');
+      hideBanner();
+      renderTable();
+    });
+
+    function enqueueFiles(fileList) {
+      hideBanner();
+      let added = 0;
+      for (const file of fileList) {
+        if (file.name.toLowerCase().endsWith('.pdf')) {
+          const path = file.webkitRelativePath || file.name;
+          const exists = queue.some((q) => q.path === path && q.file.size === file.size);
+          if (!exists) {
+            queue.push({
+              file,
+              path,
+              size: formatBytes(file.size),
+              match: findMatchForPdf(path),
+              status: 'Aguardando',
+              state: 'wait',
+            });
+            added++;
+          }
+        }
+      }
+      if (added === 0 && fileList.length > 0) {
+        showBanner('Nenhum arquivo PDF novo encontrado na seleção.', 'info');
+      }
+      renderTable();
+    }
+
+    function renderTable() {
+      fileTableBody.innerHTML = '';
+      queueCount.textContent = queue.length;
+      tableSection.classList.toggle('hidden', queue.length === 0);
+      processBtn.disabled = queue.length === 0;
+      processBtnText.textContent =
+        queue.length === 1
+          ? 'Desbloquear PDF Individual e Baixar'
+          : queue.length > 1
+          ? `Desbloquear Lote (${queue.length} PDFs) e Baixar ZIP`
+          : 'Desbloquear Lote e Baixar';
+
+      queue.forEach((item, index) => {
+        const badgeStyles = {
+          ok: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+          err: 'text-red-700 bg-red-50 border-red-200',
+          proc: 'text-blue-700 bg-blue-50 border-blue-200',
+          wait: 'text-slate-600 bg-slate-100 border-slate-200',
+        };
+        const badgeClass = badgeStyles[item.state] || badgeStyles.wait;
+
+        const matchHtml = item.match
+          ? `<div class="text-xs">
+               <span class="font-semibold text-slate-800">${escapeHtml(item.match.rawName)}</span>
+               <span class="ml-1.5 inline-block bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-mono text-[11px]">Senha: ${escapeHtml(item.match.rawPass)}</span>
+             </div>`
+          : `<span class="text-xs text-slate-400 italic">Não localizado na planilha</span>`;
+
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50/80 transition-colors';
+        tr.innerHTML = `
+          <td class="py-2.5 px-4 font-medium text-slate-700 truncate max-w-xs" title="${escapeHtml(item.path)}">
+            <div>${escapeHtml(item.path)}</div>
+            <div class="text-[11px] text-slate-400">${item.size}</div>
+          </td>
+          <td class="py-2.5 px-4">
+            ${matchHtml}
+          </td>
+          <td class="py-2.5 px-4 text-right whitespace-nowrap">
+            <span class="inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full border ${badgeClass}">
+              ${item.status}
+            </span>
+          </td>
+          <td class="py-2.5 px-4 text-center whitespace-nowrap">
+            <button
+              type="button"
+              data-single-idx="${index}"
+              class="single-unlock-btn text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
+              title="Desbloquear e baixar apenas este PDF"
+            >
+              Baixar PDF
+            </button>
+          </td>
+        `;
+        fileTableBody.appendChild(tr);
+      });
+
+      document.querySelectorAll('.single-unlock-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const idx = parseInt(btn.getAttribute('data-single-idx'), 10);
+          await processSingleItemAndDownload(idx);
+        });
+      });
+    }
+
+    function expandCandidatePasswords(rawList) {
+      const result = [];
+      const addUnique = (val) => {
+        if (val && !result.includes(val)) result.push(val);
+      };
+      for (const raw of rawList) {
+        addUnique(raw);
+        const digitsOnly = raw.replace(/\D/g, '');
+        if (digitsOnly) addUnique(digitsOnly);
+      }
+      return result;
+    }
+
+    async function openWithPdfJs(arrayBuffer, password) {
+      const loadingTask = window.pdfjsLib.getDocument({
+        data: new Uint8Array(arrayBuffer.slice(0)),
+        password: password || undefined,
+      });
+      return await loadingTask.promise;
+    }
+
+    async function rebuildCleanPdfFromPdfJs(pdfDocProxy) {
+      const cleanPdf = await PDFDocument.create();
+      const numPages = pdfDocProxy.numPages;
+
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const page = await pdfDocProxy.getPage(pageNum);
+        const baseViewport = page.getViewport({ scale: 1.0 });
+        const renderViewport = page.getViewport({ scale: 2.5 });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(renderViewport.width);
+        canvas.height = Math.floor(renderViewport.height);
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+
+        const pngDataUrl = canvas.toDataURL('image/png');
+        const pngBytes = await fetch(pngDataUrl).then((res) => res.arrayBuffer());
+        const embeddedImage = await cleanPdf.embedPng(pngBytes);
+
+        const newPage = cleanPdf.addPage([baseViewport.width, baseViewport.height]);
+        newPage.drawImage(embeddedImage, {
+          x: 0,
+          y: 0,
+          width: baseViewport.width,
+          height: baseViewport.height,
+        });
+
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      return await cleanPdf.save();
+    }
+
+    async function unlockPdfDocument(arrayBuffer, candidatePasswords) {
+      const attempts = [undefined, ...candidatePasswords];
+      let needsUserPassword = false;
+
+      for (const pwd of attempts) {
+        try {
+          const pdfDocProxy = await openWithPdfJs(arrayBuffer, pwd);
+          const cleanBytes = await rebuildCleanPdfFromPdfJs(pdfDocProxy);
+          return { bytes: cleanBytes };
+        } catch (err) {
+          if (err && err.name === 'PasswordException') {
+            needsUserPassword = true;
+          }
+        }
+      }
+
+      const error = new Error(needsUserPassword ? 'Senha necessária' : 'Falha ao ler PDF');
+      error.needsPassword = needsUserPassword;
+      throw error;
+    }
+
+    function promptPasswordForFile(fileName) {
+      return new Promise((resolve) => {
+        modalFileName.textContent = fileName;
+        modalPasswordInput.value = '';
+        passwordModal.classList.remove('hidden');
+        passwordModal.classList.add('flex');
+        setTimeout(() => modalPasswordInput.focus(), 50);
+
+        const cleanup = () => {
+          passwordModal.classList.add('hidden');
+          passwordModal.classList.remove('flex');
+          modalConfirmBtn.removeEventListener('click', onConfirm);
+          modalSkipBtn.removeEventListener('click', onSkip);
+          modalPasswordInput.removeEventListener('keydown', onKeyDown);
+        };
+
+        const onConfirm = () => {
+          const val = modalPasswordInput.value.trim();
+          const applyAll = modalApplyAllCheckbox.checked;
+          cleanup();
+          resolve(val ? { password: val, applyAll } : null);
+        };
+
+        const onSkip = () => {
+          cleanup();
+          resolve(null);
+        };
+
+        const onKeyDown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onConfirm();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onSkip();
+          }
+        };
+
+        modalConfirmBtn.addEventListener('click', onConfirm);
+        modalSkipBtn.addEventListener('click', onSkip);
+        modalPasswordInput.addEventListener('keydown', onKeyDown);
+      });
+    }
+
+    async function processOneQueueItem(item, fallbackCandidates, allowPrompt = true) {
+      item.status = 'Processando...';
+      item.state = 'proc';
+      renderTable();
+
+      await new Promise((r) => setTimeout(r, 15));
+
+      const buffer = await item.file.arrayBuffer();
+
+      const itemCandidates = item.match
+        ? [...expandCandidatePasswords([item.match.rawPass]), ...fallbackCandidates]
+        : [...fallbackCandidates];
+
+      try {
+        return await unlockPdfDocument(buffer, itemCandidates);
+      } catch (firstErr) {
+        if (firstErr.needsPassword && allowPrompt) {
+          const promptResult = await promptPasswordForFile(item.path);
+          if (promptResult && promptResult.password) {
+            const extraCandidates = expandCandidatePasswords([promptResult.password]);
+            if (promptResult.applyAll) {
+              fallbackCandidates.unshift(...extraCandidates);
+            }
+            return await unlockPdfDocument(buffer, extraCandidates);
+          }
+        }
+        throw firstErr;
+      }
+    }
+
+    async function processSingleItemAndDownload(index) {
+      const item = queue[index];
+      if (!item) return;
+
+      hideBanner();
+      const rawPasswords = passwordsInput.value
+        .split('\n')
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const fallbackCandidates = expandCandidatePasswords(rawPasswords);
+
+      try {
+        const result = await processOneQueueItem(item, fallbackCandidates, true);
+        item.status = 'Liberado';
+        item.state = 'ok';
+        renderTable();
+
+        const baseName = item.path.split('/').pop().replace(/\.pdf$/i, '');
+        triggerDownload(new Blob([result.bytes], { type: 'application/pdf' }), `${baseName}_liberado.pdf`);
+        showBanner(`"${baseName}_liberado.pdf" desbloqueado e baixado com sucesso!`, 'success');
+      } catch (err) {
+        item.status = err.needsPassword ? 'Senha incorreta / necessária' : 'Erro ao processar';
+        item.state = 'err';
+        renderTable();
+        showBanner(`Não foi possível desbloquear "${item.path}". Verifique a senha na planilha.`, 'error');
+      }
+    }
+
+    processBtn.addEventListener('click', async () => {
+      if (queue.length === 0) return;
+
+      processBtn.disabled = true;
+      clearBtn.disabled = true;
+      hideBanner();
+      progressSection.classList.remove('hidden');
+
+      const rawPasswords = passwordsInput.value
+        .split('\n')
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      const fallbackCandidates = expandCandidatePasswords(rawPasswords);
+
+      const unlockedFiles = [];
+      let okCount = 0;
+      let errCount = 0;
+
+      for (let i = 0; i < queue.length; i++) {
+        const item = queue[i];
+        try {
+          const result = await processOneQueueItem(item, fallbackCandidates, true);
+
+          unlockedFiles.push({
+            path: item.path,
+            bytes: result.bytes,
+          });
+
+          item.status = 'Liberado';
+          item.state = 'ok';
+          okCount++;
+        } catch (err) {
+          item.status = err.needsPassword ? 'Senha incorreta / necessária' : 'Erro ao processar';
+          item.state = 'err';
+          errCount++;
+        }
+
+        const pct = Math.round(((i + 1) / queue.length) * 100);
+        progressBar.style.width = `${pct}%`;
+        progressLabel.textContent = `Processando ${i + 1} de ${queue.length}...`;
+        statsLabel.textContent = `${okCount} liberados • ${errCount} falhas`;
+        renderTable();
+      }
+
+      if (unlockedFiles.length === 1) {
+        const single = unlockedFiles[0];
+        const baseName = single.path.split('/').pop().replace(/\.pdf$/i, '');
+        triggerDownload(new Blob([single.bytes], { type: 'application/pdf' }), `${baseName}_liberado.pdf`);
+        showBanner('1 boleto liberado e baixado com sucesso!', 'success');
+      } else if (unlockedFiles.length > 1) {
+        const zip = new JSZip();
+        unlockedFiles.forEach((f) => zip.file(f.path, f.bytes));
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const dateTag = new Date().toISOString().slice(0, 10);
+        triggerDownload(zipBlob, `boletos_liberados_${dateTag}.zip`);
+        showBanner(`${unlockedFiles.length} boletos liberados e compactados em ZIP com sucesso!`, 'success');
+      } else {
+        showBanner('Nenhum arquivo pôde ser desbloqueado. Verifique as senhas na planilha.', 'error');
+      }
+
+      processBtn.disabled = false;
+      clearBtn.disabled = false;
+    });
+
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    // Empacota o projeto completo (index.html limpo + vercel.json + README.md) em ZIP para Git + Vercel
+    downloadSourceBtn.addEventListener('click', async () => {
+      try {
+        const cloneDoc = document.documentElement.cloneNode(true);
+
+        // Reseta estados dinâmicos da UI no clone para gerar um index.html 100% limpo
+        const resetIds = [
+          'progressSection',
+          'tableSection',
+          'statusBanner',
+          'sheetBadge',
+          'sheetColumnsConfig',
+          'passwordModal',
+        ];
+        resetIds.forEach((id) => {
+          const el = cloneDoc.querySelector(`#${id}`);
+          if (el) {
+            el.classList.add('hidden');
+            el.classList.remove('flex');
+          }
+        });
+
+        const cloneTbody = cloneDoc.querySelector('#fileTableBody');
+        if (cloneTbody) cloneTbody.innerHTML = '';
+
+        const cloneSheetLabel = cloneDoc.querySelector('#sheetLabel');
+        if (cloneSheetLabel) cloneSheetLabel.textContent = '📊 Clique ou arraste a planilha (.xlsx / .csv)';
+
+        const clonePasswords = cloneDoc.querySelector('#passwordsInput');
+        if (clonePasswords) clonePasswords.textContent = '';
+
+        const cloneProcessBtn = cloneDoc.querySelector('#processBtn');
+        if (cloneProcessBtn) cloneProcessBtn.setAttribute('disabled', '');
+
+        const cloneProcessBtnText = cloneDoc.querySelector('#processBtnText');
+        if (cloneProcessBtnText) cloneProcessBtnText.textContent = 'Desbloquear Lote e Baixar';
+
+        const cleanHtml = '<!DOCTYPE html>\n' + cloneDoc.outerHTML;
+
+        const vercelConfig = JSON.stringify(
+          {
+            cleanUrls: true,
+            trailingSlash: false,
+            headers: [
+              {
+                source: '/(.*)',
+                headers: [
+                  { key: 'X-Content-Type-Options', value: 'nosniff' },
+                  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+                ],
+              },
+            ],
+          },
+          null,
+          2
+        );
+
+        const readmeContent = `# Desbloqueador de Boletos em Lote • Reciclar
+
+Ferramenta 100% client-side para cruzar planilhas de alunos/senhas (\`.xlsx\`, \`.xls\`, \`.csv\`) com boletos em PDF e gerar cópias sem senha para abertura, individualmente ou em lote (\`.zip\`). O PDF de saída é reconstruído como imagem: mantém a aparência, mas não preserva texto selecionável, links, formulários ou a estrutura original do documento.
+
+## Como publicar no GitHub e Vercel
+
+1. Extraia este arquivo ZIP em uma pasta no seu computador.
+2. Abra o terminal na pasta e envie para o seu repositório no GitHub:
+   \`\`\`bash
+   git init
+   git add .
+   git commit -m "feat: desbloqueador de boletos em lote"
+   git branch -M main
+   git remote add origin https://github.com/SEU-USUARIO/desbloqueador-boletos.git
+   git push -u origin main
+   \`\`\`
+3. Acesse [vercel.com](https://vercel.com), clique em **Add New → Project**, selecione o repositório e clique em **Deploy** (nenhum comando de build é necessário).
+`;
+
+        const zip = new JSZip();
+        zip.file('index.html', cleanHtml);
+        zip.file('vercel.json', vercelConfig);
+        zip.file('README.md', readmeContent);
+
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        triggerDownload(zipBlob, 'desbloqueador-boletos-vercel.zip');
+        showBanner(
+          'Pacote "desbloqueador-boletos-vercel.zip" baixado! Extraia os arquivos e suba no GitHub para publicar na Vercel.',
+          'success'
+        );
+      } catch (err) {
+        showBanner('Erro ao gerar o arquivo ZIP do projeto.', 'error');
+      }
+    });
+  </script>
+</body>
+</html>
